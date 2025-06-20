@@ -10,19 +10,29 @@ class EmailService {
   private transporter: nodemailer.Transporter;
 
   constructor() {
+    // Debug Brevo credentials
+    console.log('📧 Email Service Debug:');
+    console.log('- BREVO_API_KEY exists:', process.env.BREVO_API_KEY ? 'YES' : 'NO');
+    console.log('- BREVO_SENDER_EMAIL:', process.env.BREVO_SENDER_EMAIL);
+    console.log('- BREVO_SENDER_NAME:', process.env.BREVO_SENDER_NAME);
+
     this.transporter = nodemailer.createTransport({
       host: 'smtp-relay.brevo.com',
       port: 587,
-      secure: false,
+      secure: false, // Use STARTTLS
       auth: {
         user: process.env.BREVO_SENDER_EMAIL,
         pass: process.env.BREVO_API_KEY
-      }
+      },
+      debug: process.env.NODE_ENV === 'development', // Enable debug in development
+      logger: process.env.NODE_ENV === 'development'
     });
   }
 
   async sendEmail(options: EmailOptions): Promise<void> {
     try {
+      console.log(`📤 Attempting to send email to: ${options.to}`);
+      
       const mailOptions = {
         from: `${process.env.BREVO_SENDER_NAME} <${process.env.BREVO_SENDER_EMAIL}>`,
         to: options.to,
@@ -30,10 +40,16 @@ class EmailService {
         html: options.html
       };
 
-      await this.transporter.sendMail(mailOptions);
-      console.log(`Email sent to ${options.to}`);
+      console.log('📋 Email config:', {
+        from: mailOptions.from,
+        to: mailOptions.to,
+        subject: mailOptions.subject
+      });
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Email sent successfully to ${options.to}:`, result.messageId);
     } catch (error) {
-      console.error('Error sending email:', error);
+      console.error('❌ Email sending failed:', error);
       throw new Error('Failed to send email');
     }
   }

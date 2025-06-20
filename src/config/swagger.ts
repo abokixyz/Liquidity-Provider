@@ -41,7 +41,7 @@ const swaggerDefinition: SwaggerDefinition = {
       description: 'Development server'
     },
     {
-      url: 'https://liquidity-abokii.onrender.com',
+      url: 'https://liquidity-provider.onrender.com',
       description: 'Production server'
     }
   ],

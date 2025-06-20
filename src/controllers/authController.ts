@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import crypto from 'crypto';
 import User, { IUser } from '../models/User';
-import emailService from '../services/emailService';
+import brevoEmailService from '../services/brevoEmailService';
 
 interface AuthRequest extends Request {
   user?: IUser;
@@ -14,30 +14,30 @@ interface TokenPayload extends JwtPayload {
 
 // Generate JWT token
 const generateToken = (id: string): string => {
-  const secret = process.env.JWT_SECRET;
-  const expire: jwt.SignOptions['expiresIn'] = process.env.JWT_EXPIRE as jwt.SignOptions['expiresIn'] || '7d';
-  
-  if (!secret) {
-    throw new Error('JWT_SECRET is not defined');
-  }
-  
-  console.log('🔑 Generating token:');
-  console.log('- User ID:', id);
-  console.log('- JWT_EXPIRE from env:', JSON.stringify(process.env.JWT_EXPIRE));
-  console.log('- JWT_EXPIRE variable:', expire);
-  console.log('- JWT_SECRET length:', secret.length);
-  console.log('- All JWT env vars:', {
-    JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
-    JWT_EXPIRE: process.env.JWT_EXPIRE,
-    NODE_ENV: process.env.NODE_ENV
-  });
-  
-  try {
-    const token = jwt.sign(
-      { id }, 
-      secret, 
-      { expiresIn: expire }
-    );
+    const secret = process.env.JWT_SECRET;
+    const expire: jwt.SignOptions['expiresIn'] = process.env.JWT_EXPIRE as jwt.SignOptions['expiresIn'] || '7d';
+    
+    if (!secret) {
+      throw new Error('JWT_SECRET is not defined');
+    }
+    
+    console.log('🔑 Generating token:');
+    console.log('- User ID:', id);
+    console.log('- JWT_EXPIRE from env:', JSON.stringify(process.env.JWT_EXPIRE));
+    console.log('- JWT_EXPIRE variable:', expire);
+    console.log('- JWT_SECRET length:', secret.length);
+    console.log('- All JWT env vars:', {
+      JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
+      JWT_EXPIRE: process.env.JWT_EXPIRE,
+      NODE_ENV: process.env.NODE_ENV
+    });
+    
+    try {
+      const token = jwt.sign(
+        { id }, 
+        secret, 
+        { expiresIn: expire }
+      );
     
     // Decode to verify
     const decoded = jwt.decode(token) as TokenPayload;
@@ -94,17 +94,12 @@ export const register = async (req: Request, res: Response) => {
       password
     });
 
-    // Generate email verification token
+    // Generate email verification token (for future use, but don't send email)
     const verificationToken = user.generateEmailVerificationToken();
     await user.save();
 
-    // Send welcome email
-    try {
-      await emailService.sendWelcomeEmail(user.name, user.email, verificationToken);
-    } catch (emailError) {
-      console.error('Failed to send welcome email:', emailError);
-      // Don't fail registration if email fails
-    }
+    console.log('✅ User registered successfully - no welcome email sent');
+    console.log(`📝 Verification token generated (not sent): ${verificationToken.substring(0, 20)}...`);
 
     sendTokenResponse(user, 201, res);
   } catch (error) {
@@ -141,6 +136,7 @@ export const login = async (req: Request, res: Response) => {
       });
     }
 
+    console.log('✅ User logged in successfully');
     sendTokenResponse(user, 200, res);
   } catch (error) {
     console.error('Login error:', error);
@@ -210,12 +206,14 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
       }
       user.email = email;
       user.isEmailVerified = false; // Reset verification status
+      console.log('📧 Email changed - verification status reset');
     }
 
     if (name) user.name = name;
 
     await user.save();
 
+    console.log('✅ Profile updated successfully');
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',
@@ -262,6 +260,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
     user.emailVerificationExpires = undefined;
     await user.save();
 
+    console.log('✅ Email verified successfully for user:', user.email);
     res.status(200).json({
       success: true,
       message: 'Email verified successfully'
@@ -275,7 +274,7 @@ export const verifyEmail = async (req: Request, res: Response) => {
   }
 };
 
-// @desc    Forgot password
+// @desc    Forgot password (ONLY EMAIL FEATURE)
 // @route   POST /api/auth/forgot-password
 // @access  Public
 export const forgotPassword = async (req: Request, res: Response) => {
@@ -294,23 +293,29 @@ export const forgotPassword = async (req: Request, res: Response) => {
     const resetToken = user.generatePasswordResetToken();
     await user.save();
 
-    // Send reset email
+    console.log('🔑 Password reset token generated for:', email);
+
+    // Send reset email - THIS IS THE ONLY EMAIL WE SEND
     try {
-      await emailService.sendPasswordResetEmail(user.name, user.email, resetToken);
+      console.log('📧 Sending password reset email via Brevo...');
+      await brevoEmailService.sendPasswordResetEmail(user.name, user.email, resetToken);
       
+      console.log('✅ Password reset email sent successfully');
       res.status(200).json({
         success: true,
         message: 'Password reset email sent'
       });
     } catch (emailError) {
-      console.error('Failed to send reset email:', emailError);
+      console.error('❌ Failed to send reset email:', emailError);
+      
+      // Clean up the reset token if email fails
       user.passwordResetToken = undefined;
       user.passwordResetExpires = undefined;
       await user.save();
       
       return res.status(500).json({
         success: false,
-        message: 'Failed to send password reset email'
+        message: 'Failed to send password reset email. Please try again.'
       });
     }
   } catch (error) {
@@ -350,12 +355,8 @@ export const resetPassword = async (req: Request, res: Response) => {
     user.passwordResetExpires = undefined;
     await user.save();
 
-    // Send confirmation email
-    try {
-      await emailService.sendPasswordResetConfirmation(user.name, user.email);
-    } catch (emailError) {
-      console.error('Failed to send confirmation email:', emailError);
-    }
+    console.log('✅ Password reset successful for user:', user.email);
+    console.log('📝 No confirmation email sent (emails only for password reset requests)');
 
     sendTokenResponse(user, 200, res);
   } catch (error) {
@@ -372,6 +373,7 @@ export const resetPassword = async (req: Request, res: Response) => {
 // @access  Private
 export const logout = async (req: AuthRequest, res: Response) => {
   try {
+    console.log('✅ User logged out successfully');
     // Since we're using stateless JWT, we just send a success response
     // In a production app, you might want to maintain a blacklist of tokens
     res.status(200).json({
