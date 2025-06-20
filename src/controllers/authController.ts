@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import crypto from 'crypto';
 import User, { IUser } from '../models/User';
 import emailService from '../services/emailService';
@@ -8,16 +8,56 @@ interface AuthRequest extends Request {
   user?: IUser;
 }
 
+interface TokenPayload extends JwtPayload {
+  id: string;
+}
+
 // Generate JWT token
 const generateToken = (id: string): string => {
-  return jwt.sign({ id }, process.env.JWT_SECRET as string, {
-    expiresIn: process.env.JWT_EXPIRE ? parseInt(process.env.JWT_EXPIRE, 10) : '7d'
+  const secret = process.env.JWT_SECRET;
+  const expire: jwt.SignOptions['expiresIn'] = process.env.JWT_EXPIRE as jwt.SignOptions['expiresIn'] || '7d';
+  
+  if (!secret) {
+    throw new Error('JWT_SECRET is not defined');
+  }
+  
+  console.log('🔑 Generating token:');
+  console.log('- User ID:', id);
+  console.log('- JWT_EXPIRE from env:', JSON.stringify(process.env.JWT_EXPIRE));
+  console.log('- JWT_EXPIRE variable:', expire);
+  console.log('- JWT_SECRET length:', secret.length);
+  console.log('- All JWT env vars:', {
+    JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
+    JWT_EXPIRE: process.env.JWT_EXPIRE,
+    NODE_ENV: process.env.NODE_ENV
   });
+  
+  try {
+    const token = jwt.sign(
+      { id }, 
+      secret, 
+      { expiresIn: expire }
+    );
+    
+    // Decode to verify
+    const decoded = jwt.decode(token) as TokenPayload;
+    if (decoded && decoded.iat && decoded.exp) {
+      console.log('- Token issued at:', new Date(decoded.iat * 1000));
+      console.log('- Token expires at:', new Date(decoded.exp * 1000));
+      console.log('- Seconds until expiry:', decoded.exp - decoded.iat);
+    }
+    
+    return token;
+  } catch (error) {
+    console.error('Error generating token:', error);
+    throw new Error('Failed to generate token');
+  }
 };
 
 // Send token response
 const sendTokenResponse = (user: IUser, statusCode: number, res: Response) => {
-  const token = generateToken(user._id as string);
+  const userId = user._id.toString();
+  const token = generateToken(userId);
   
   res.status(statusCode).json({
     success: true,
@@ -117,15 +157,22 @@ export const login = async (req: Request, res: Response) => {
 export const getProfile = async (req: AuthRequest, res: Response) => {
   try {
     const user = req.user;
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not found in request'
+      });
+    }
+
     res.status(200).json({
       success: true,
       user: {
-        id: user!._id,
-        name: user!.name,
-        email: user!.email,
-        isEmailVerified: user!.isEmailVerified,
-        createdAt: user!.createdAt,
-        updatedAt: user!.updatedAt
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        isEmailVerified: user.isEmailVerified,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
       }
     });
   } catch (error) {
@@ -143,7 +190,14 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
 export const updateProfile = async (req: AuthRequest, res: Response) => {
   try {
     const { name, email } = req.body;
-    const user = req.user!;
+    const user = req.user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not found in request'
+      });
+    }
 
     // Check if email is being changed and if it's already taken
     if (email && email !== user.email) {
