@@ -55,7 +55,7 @@ const generateToken = (id: string): string => {
 };
 
 // Send token response
-const sendTokenResponse = (user: IUser, statusCode: number, res: Response) => {
+const sendTokenResponse = (user: IUser, statusCode: number, res: Response): void => {
   const userId = user._id.toString();
   const token = generateToken(userId);
   
@@ -74,17 +74,18 @@ const sendTokenResponse = (user: IUser, statusCode: number, res: Response) => {
 // @desc    Register user
 // @route   POST /api/auth/register
 // @access  Public
-export const register = async (req: Request, res: Response) => {
+export const register = async (req: Request, res: Response): Promise<void> => {
   try {
     const { name, email, password } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'User already exists with this email'
       });
+      return;
     }
 
     // Create user
@@ -114,26 +115,28 @@ export const register = async (req: Request, res: Response) => {
 // @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
-export const login = async (req: Request, res: Response) => {
+export const login = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
     // Find user and include password
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
+      return;
     }
 
     // Check password
     const isPasswordValid = await user.comparePassword(password);
     if (!isPasswordValid) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'Invalid credentials'
       });
+      return;
     }
 
     console.log('✅ User logged in successfully');
@@ -150,14 +153,15 @@ export const login = async (req: Request, res: Response) => {
 // @desc    Get current user profile
 // @route   GET /api/auth/profile
 // @access  Private
-export const getProfile = async (req: AuthRequest, res: Response) => {
+export const getProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const user = req.user;
     if (!user) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'User not found in request'
       });
+      return;
     }
 
     res.status(200).json({
@@ -183,26 +187,28 @@ export const getProfile = async (req: AuthRequest, res: Response) => {
 // @desc    Update user profile
 // @route   PUT /api/auth/profile
 // @access  Private
-export const updateProfile = async (req: AuthRequest, res: Response) => {
+export const updateProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { name, email } = req.body;
     const user = req.user;
 
     if (!user) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'User not found in request'
       });
+      return;
     }
 
     // Check if email is being changed and if it's already taken
     if (email && email !== user.email) {
       const existingUser = await User.findOne({ email });
       if (existingUser) {
-        return res.status(400).json({
+        res.status(400).json({
           success: false,
           message: 'Email already in use'
         });
+        return;
       }
       user.email = email;
       user.isEmailVerified = false; // Reset verification status
@@ -236,7 +242,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
 // @desc    Verify email
 // @route   GET /api/auth/verify-email/:token
 // @access  Public
-export const verifyEmail = async (req: Request, res: Response) => {
+export const verifyEmail = async (req: Request, res: Response): Promise<void> => {
   try {
     const { token } = req.params;
 
@@ -249,10 +255,11 @@ export const verifyEmail = async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'Invalid or expired verification token'
       });
+      return;
     }
 
     user.isEmailVerified = true;
@@ -277,16 +284,17 @@ export const verifyEmail = async (req: Request, res: Response) => {
 // @desc    Forgot password (ONLY EMAIL FEATURE)
 // @route   POST /api/auth/forgot-password
 // @access  Public
-export const forgotPassword = async (req: Request, res: Response) => {
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
   try {
     const { email } = req.body;
 
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: 'No user found with that email address'
       });
+      return;
     }
 
     // Generate reset token
@@ -313,7 +321,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
       user.passwordResetExpires = undefined;
       await user.save();
       
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: 'Failed to send password reset email. Please try again.'
       });
@@ -330,7 +338,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
 // @desc    Reset password
 // @route   POST /api/auth/reset-password
 // @access  Public
-export const resetPassword = async (req: Request, res: Response) => {
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
   try {
     const { token, password } = req.body;
 
@@ -343,10 +351,11 @@ export const resetPassword = async (req: Request, res: Response) => {
     });
 
     if (!user) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'Invalid or expired reset token'
       });
+      return;
     }
 
     // Set new password
@@ -371,7 +380,7 @@ export const resetPassword = async (req: Request, res: Response) => {
 // @desc    Logout user
 // @route   POST /api/auth/logout
 // @access  Private
-export const logout = async (req: AuthRequest, res: Response) => {
+export const logout = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('✅ User logged out successfully');
     // Since we're using stateless JWT, we just send a success response

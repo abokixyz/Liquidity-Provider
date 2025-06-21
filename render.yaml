@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: aboki-liquidity-api
+    env: node
+    plan: starter
+    region: oregon
+    buildCommand: |
+      echo "Installing dependencies..."
+      npm ci --only=production
+      echo "Building TypeScript..."
+      npm run build
+      echo "Verifying build..."
+      ls -la dist/
+      echo "Build verification complete"
+    startCommand: node --max-old-space-size=1024 --expose-gc dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: true
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=1024 --expose-gc"
+    # Auto-deploy from main branch
+    autoDeploy: true

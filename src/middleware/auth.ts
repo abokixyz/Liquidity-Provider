@@ -10,7 +10,7 @@ interface TokenPayload extends JwtPayload {
   id: string;
 }
 
-export const protect = async (req: AuthRequest, res: Response, next: NextFunction) => {
+export const protect = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
   try {
     let token: string | undefined;
 
@@ -25,35 +25,38 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
 
     if (!token) {
       console.log('❌ No token provided');
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'Access denied. No token provided.'
       });
+      return;
     }
 
     const secret = process.env.JWT_SECRET;
     if (!secret) {
       console.log('❌ JWT_SECRET not configured');
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: 'Server configuration error.'
       });
+      return;
     }
 
     // Verify token
     console.log('🔐 Verifying token...');
     const decoded = jwt.verify(token, secret) as TokenPayload;
     console.log('✅ Token decoded successfully:', { userId: decoded.id });
-    
+        
     // Get user from token
     console.log('👤 Looking up user...');
     const user = await User.findById(decoded.id);
     if (!user) {
       console.log('❌ User not found in database');
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'Invalid token. User not found.'
       });
+      return;
     }
 
     console.log('✅ User found:', { id: user._id, email: user.email });
@@ -62,30 +65,33 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
   } catch (error) {
     console.log('❌ Token verification failed:', error);
     if (error instanceof TokenExpiredError) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'Token expired. Please login again.'
       });
+      return;
     }
     if (error instanceof JsonWebTokenError) {
-      return res.status(401).json({
+      res.status(401).json({
         success: false,
         message: 'Invalid token format.'
       });
+      return;
     }
-    return res.status(401).json({
+    res.status(401).json({
       success: false,
       message: 'Invalid token.'
     });
   }
 };
 
-export const requireEmailVerification = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const requireEmailVerification = (req: AuthRequest, res: Response, next: NextFunction): void => {
   if (!req.user?.isEmailVerified) {
-    return res.status(403).json({
+    res.status(403).json({
       success: false,
       message: 'Please verify your email address to access this resource.'
     });
+    return;
   }
   next();
 };

@@ -25,6 +25,7 @@ const handleValidationErrors = (req: express.Request, res: express.Response, nex
     });
   }
   next();
+  return; // Explicitly return to ensure all code paths return a value
 };
 
 // Bank account validation - ✅ FIXED: Bank code is 6 digits

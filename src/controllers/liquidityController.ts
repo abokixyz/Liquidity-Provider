@@ -2,8 +2,8 @@ import { Request, Response } from 'express';
 import { LiquidityPosition } from '../models/Liquidity';
 import { Wallet } from '../models/Wallet';
 import { Transaction } from '../models/Transaction';
-import { IUser } from '../models/User';
 import walletService from '../services/walletService';
+import { IUser } from '../models/User';
 
 interface AuthRequest extends Request {
   user?: IUser;
@@ -12,7 +12,7 @@ interface AuthRequest extends Request {
 // @desc    Create liquidity position
 // @route   POST /api/liquidity/create
 // @access  Private
-export const createLiquidityPosition = async (req: AuthRequest, res: Response) => {
+export const createLiquidityPosition = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { liquidityType, bankAccount } = req.body;
     const userId = req.user!._id;
@@ -22,10 +22,11 @@ export const createLiquidityPosition = async (req: AuthRequest, res: Response) =
     // Check if user already has a liquidity position
     const existingPosition = await LiquidityPosition.findOne({ userId, isActive: true });
     if (existingPosition) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'User already has an active liquidity position'
       });
+      return;
     }
 
     // Create wallets if they don't exist
@@ -33,19 +34,21 @@ export const createLiquidityPosition = async (req: AuthRequest, res: Response) =
     const walletsResult = await walletService.createUserWallets(userId.toString());
     
     if (!walletsResult.success) {
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: 'Failed to create wallets'
       });
+      return;
     }
 
     // Get wallet ID
     const wallet = await Wallet.findOne({ userId });
     if (!wallet) {
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: 'Wallet not found after creation'
       });
+      return;
     }
 
     // Create liquidity position
@@ -96,7 +99,7 @@ export const createLiquidityPosition = async (req: AuthRequest, res: Response) =
 // @desc    Get user's liquidity position
 // @route   GET /api/liquidity/position
 // @access  Private
-export const getLiquidityPosition = async (req: AuthRequest, res: Response) => {
+export const getLiquidityPosition = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!._id;
 
@@ -104,10 +107,11 @@ export const getLiquidityPosition = async (req: AuthRequest, res: Response) => {
       .populate('walletId', 'baseAddress solanaAddress');
 
     if (!position) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: 'No active liquidity position found'
       });
+      return;
     }
 
     // Get wallet balances
@@ -143,7 +147,7 @@ export const getLiquidityPosition = async (req: AuthRequest, res: Response) => {
 // @desc    Update bank account
 // @route   PUT /api/liquidity/bank-account
 // @access  Private
-export const updateBankAccount = async (req: AuthRequest, res: Response) => {
+export const updateBankAccount = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { bankAccount } = req.body;
     const userId = req.user!._id;
@@ -152,10 +156,11 @@ export const updateBankAccount = async (req: AuthRequest, res: Response) => {
 
     const position = await LiquidityPosition.findOne({ userId, isActive: true });
     if (!position) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: 'No active liquidity position found'
       });
+      return;
     }
 
     // Update bank account details
@@ -190,7 +195,7 @@ export const updateBankAccount = async (req: AuthRequest, res: Response) => {
 // @desc    Get transaction history
 // @route   GET /api/liquidity/transactions
 // @access  Private
-export const getTransactionHistory = async (req: AuthRequest, res: Response) => {
+export const getTransactionHistory = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!._id;
     const { page = 1, limit = 20, type, network, status } = req.query;
@@ -236,17 +241,18 @@ export const getTransactionHistory = async (req: AuthRequest, res: Response) => 
 // @desc    Get wallet addresses for funding
 // @route   GET /api/liquidity/wallets
 // @access  Private
-export const getWalletAddresses = async (req: AuthRequest, res: Response) => {
+export const getWalletAddresses = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const userId = req.user!._id;
 
     const walletsResult = await walletService.getUserWallets(userId.toString());
     
     if (!walletsResult.success) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: 'No wallets found for user'
       });
+      return;
     }
 
     // Get current balances
@@ -291,7 +297,7 @@ export const getWalletAddresses = async (req: AuthRequest, res: Response) => {
 // @desc    Initiate withdrawal (gasless)
 // @route   POST /api/liquidity/withdraw
 // @access  Private
-export const initiateWithdrawal = async (req: AuthRequest, res: Response) => {
+export const initiateWithdrawal = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { network, amount, destinationAddress } = req.body;
     const userId = req.user!._id;
@@ -304,25 +310,28 @@ export const initiateWithdrawal = async (req: AuthRequest, res: Response) => {
     // Get liquidity position
     const position = await LiquidityPosition.findOne({ userId, isActive: true });
     if (!position) {
-      return res.status(404).json({
+      res.status(404).json({
         success: false,
         message: 'No active liquidity position found'
       });
+      return;
     }
 
     // Validate network and balance
     if (network === 'base' && position.baseBalance < amount) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: `Insufficient Base USDC balance. Available: ${position.baseBalance}`
       });
+      return;
     }
 
     if (network === 'solana' && position.solanaBalance < amount) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: `Insufficient Solana USDC balance. Available: ${position.solanaBalance}`
       });
+      return;
     }
 
     // Create transaction record
@@ -367,8 +376,8 @@ export const initiateWithdrawal = async (req: AuthRequest, res: Response) => {
 
 // @desc    Get supported banks for account setup
 // @route   GET /api/liquidity/banks
-// @access  Public
-export const getSupportedBanks = async (req: Request, res: Response) => {
+// @access  Private
+export const getSupportedBanks = async (req: Request, res: Response): Promise<void> => {
   try {
     console.log('🏦 Fetching supported banks from Lenco...');
     
@@ -395,8 +404,8 @@ export const getSupportedBanks = async (req: Request, res: Response) => {
 
 // @desc    Verify bank account
 // @route   POST /api/liquidity/verify-account
-// @access  Public
-export const verifyBankAccount = async (req: Request, res: Response) => {
+// @access  Private
+export const verifyBankAccount = async (req: Request, res: Response): Promise<void> => {
   try {
     const { accountNumber, bankCode } = req.body;
 
@@ -406,27 +415,30 @@ export const verifyBankAccount = async (req: Request, res: Response) => {
     
     // Validate input format first
     if (!lencoService.isValidAccountNumber(accountNumber)) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'Invalid account number format. Must be exactly 10 digits.'
       });
+      return;
     }
 
     if (!lencoService.isValidBankCode(bankCode)) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'Invalid bank code format. Must be exactly 6 digits.'
       });
+      return;
     }
 
     // Resolve account via Lenco API
     const accountData = await lencoService.resolveAccount(accountNumber, bankCode);
 
     if (!accountData) {
-      return res.status(400).json({
+      res.status(400).json({
         success: false,
         message: 'Account verification failed. Please check account number and bank code.'
       });
+      return;
     }
 
     res.status(200).json({

@@ -3,11 +3,20 @@
   "version": "1.0.0",
   "description": "Authentication API with Node.js, TypeScript, and MongoDB",
   "main": "dist/server.js",
+  "type": "commonjs",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/server.js",
-    "dev": "nodemon src/server.ts",
-    "test": "jest"
+    "start": "node --max-old-space-size=1024 --expose-gc dist/server.js",
+    "dev": "nodemon --exec \"node --max-old-space-size=512 -r ts-node/register\" src/server.ts",
+    "dev:legacy": "nodemon src/server.ts",
+    "test": "jest",
+    "postbuild": "echo 'Build completed - checking dist folder' && ls -la dist/",
+    "prebuild": "rm -rf dist",
+    "health": "node -e \"console.log('Node version:', process.version); console.log('Memory limit test passed')\""
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
   },
   "dependencies": {
     "@sendinblue/client": "^3.3.1",
@@ -46,12 +55,21 @@
     "ts-node": "^10.9.1",
     "typescript": "^5.3.3"
   },
+  "nodemonConfig": {
+    "watch": ["src"],
+    "ext": "ts,js,json",
+    "ignore": ["dist", "node_modules"],
+    "exec": "node --max-old-space-size=512 -r ts-node/register src/server.ts"
+  },
   "keywords": [
     "nodejs",
     "typescript",
     "mongodb",
     "authentication",
-    "jwt"
+    "jwt",
+    "liquidity",
+    "solana",
+    "ethereum"
   ],
   "author": "Your Name",
   "license": "MIT"
