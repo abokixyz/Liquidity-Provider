@@ -100,49 +100,96 @@ export const createLiquidityPosition = async (req: AuthRequest, res: Response): 
 // @route   GET /api/liquidity/position
 // @access  Private
 export const getLiquidityPosition = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!._id;
-
-    const position = await LiquidityPosition.findOne({ userId, isActive: true })
-      .populate('walletId', 'baseAddress solanaAddress');
-
-    if (!position) {
-      res.status(404).json({
-        success: false,
-        message: 'No active liquidity position found'
-      });
-      return;
-    }
-
-    // Get wallet balances
-    const balancesResult = await walletService.getWalletBalances(userId.toString());
-
-    res.status(200).json({
-      success: true,
-      data: {
-        liquidityPosition: {
-          id: position._id,
-          liquidityType: position.liquidityType,
-          baseBalance: position.baseBalance,
-          solanaBalance: position.solanaBalance,
-          totalBalance: position.totalBalance,
-          isVerified: position.isVerified,
-          createdAt: position.createdAt
-        },
-        wallets: position.walletId,
-        bankAccount: position.bankAccount,
-        liveBalances: balancesResult.success ? balancesResult.balances : null
+    try {
+      const userId = req.user!._id;
+  
+      const position = await LiquidityPosition.findOne({ userId, isActive: true })
+        .populate('walletId', 'baseAddress solanaAddress');
+  
+      if (!position) {
+        res.status(404).json({
+          success: false,
+          message: 'No active liquidity position found'
+        });
+        return;
       }
-    });
+  
+      // ✅ FIXED: Update balances from blockchain before returning
+      console.log('🔄 Updating balances from blockchain...');
+      const balancesResult = await walletService.updateLiquidityPositionBalances(userId.toString());
+  
+      // Refresh position data after balance update
+      const updatedPosition = await LiquidityPosition.findOne({ userId, isActive: true })
+        .populate('walletId', 'baseAddress solanaAddress');
+  
+      res.status(200).json({
+        success: true,
+        data: {
+          liquidityPosition: {
+            id: updatedPosition!._id,
+            liquidityType: updatedPosition!.liquidityType,
+            baseBalance: updatedPosition!.baseBalance, // ✅ Now shows real balance
+            solanaBalance: updatedPosition!.solanaBalance, // ✅ Now shows real balance
+            totalBalance: updatedPosition!.totalBalance, // ✅ Now shows real total
+            isVerified: updatedPosition!.isVerified,
+            createdAt: updatedPosition!.createdAt
+          },
+          wallets: updatedPosition!.walletId,
+          bankAccount: updatedPosition!.bankAccount,
+          liveBalances: balancesResult.success ? balancesResult.balances : null,
+          lastUpdated: new Date().toISOString()
+        }
+      });
+  
+    } catch (error) {
+      console.error('❌ Get liquidity position error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error fetching liquidity position'
+      });
+    }
+  };
+  
 
-  } catch (error) {
-    console.error('❌ Get liquidity position error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching liquidity position'
-    });
-  }
-};
+  
+  // ✅ NEW: Add endpoint to refresh balances manually
+  // @desc    Refresh wallet balances from blockchain
+  // @route   POST /api/liquidity/refresh-balances
+  // @access  Private
+  export const refreshBalances = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user!._id;
+  
+      console.log('🔄 Manually refreshing balances for user:', userId);
+  
+      // Update balances from blockchain
+      const balancesResult = await walletService.updateLiquidityPositionBalances(userId.toString());
+  
+      if (!balancesResult.success) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to refresh balances'
+        });
+        return;
+      }
+  
+      res.status(200).json({
+        success: true,
+        message: 'Balances refreshed successfully',
+        data: {
+          balances: balancesResult.balances,
+          lastUpdated: new Date().toISOString()
+        }
+      });
+  
+    } catch (error) {
+      console.error('❌ Refresh balances error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error refreshing balances'
+      });
+    }
+  };
 
 // @desc    Update bank account
 // @route   PUT /api/liquidity/bank-account

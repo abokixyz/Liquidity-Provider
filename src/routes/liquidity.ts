@@ -7,7 +7,8 @@ import {
   getWalletAddresses,
   initiateWithdrawal,
   getSupportedBanks,
-  verifyBankAccount
+  verifyBankAccount,
+  refreshBalances
 } from '../controllers/liquidityController';
 import { protect } from '../middleware/auth';
 import { body, validationResult } from 'express-validator';
@@ -15,17 +16,17 @@ import { body, validationResult } from 'express-validator';
 const router = express.Router();
 
 // Validation middleware
-const handleValidationErrors = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+const handleValidationErrors = (req: express.Request, res: express.Response, next: express.NextFunction): void => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({
+    res.status(400).json({
       success: false,
       message: 'Validation failed',
       errors: errors.array()
     });
+    return;
   }
-  next();
-  return; // Explicitly return to ensure all code paths return a value
+  return next();
 };
 
 // Bank account validation - ✅ FIXED: Bank code is 6 digits
@@ -301,6 +302,22 @@ router.post('/withdraw', protect, validateWithdrawal, handleValidationErrors, in
  *         description: Transaction history retrieved successfully
  */
 router.get('/transactions', protect, getTransactionHistory);
+
+/**
+ * @swagger
+ * /api/liquidity/refresh-balances:
+ *   post:
+ *     summary: Refresh wallet balances from blockchain
+ *     tags: [Liquidity]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Balances refreshed successfully
+ *       401:
+ *         description: Unauthorized
+ */
+router.post('/refresh-balances', protect, refreshBalances);
 
 /**
  * @swagger
