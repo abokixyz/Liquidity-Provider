@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './config/swagger';
 
-// Load environment variables
+// Load environment variables FIRST
 dotenv.config();
 
 import connectDB from './config/database';
@@ -14,10 +14,10 @@ import authRoutes from './routes/auth';
 import liquidityRoutes from './routes/liquidity';
 import { notFound, errorHandler } from './middleware/error';
 
-// Connect to database
-connectDB();
-
 const app = express();
+
+// ✅ CRITICAL: Set port properly for Render (convert string to number)
+const PORT = parseInt(process.env.PORT || '5001', 10);
 
 // Security middleware
 app.use(helmet());
@@ -31,188 +31,121 @@ app.use(cors({
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100,
   message: {
     success: false,
     message: 'Too many requests from this IP, please try again later.'
   }
 });
 
-// Apply rate limiting to all requests
 app.use(limiter);
 
-// Stricter rate limiting for auth routes
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // limit each IP to 10 requests per windowMs for auth routes
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   message: {
     success: false,
     message: 'Too many authentication attempts, please try again later.'
   }
 });
 
-// Body parser middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// ✅ MEMORY FIX: Reduce JSON limit to prevent memory issues
+app.use(express.json({ limit: '1mb' })); // Reduced from 10mb
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// Swagger Documentation
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  explorer: true,
-  customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'ABOKI Liquidity API Documentation',
-  swaggerOptions: {
-    persistAuthorization: true,
-    displayRequestDuration: true,
-    docExpansion: 'none',
-    filter: true,
-    showRequestHeaders: true,
-    tryItOutEnabled: true
-  }
-}));
-
-// Swagger JSON endpoint
-app.get('/api-docs.json', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerSpec);
-});
-
-/**
- * @swagger
- * /health:
- *   get:
- *     summary: Health check endpoint
- *     tags: [System]
- *     responses:
- *       200:
- *         description: Server is running
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Server is running
- *                 timestamp:
- *                   type: string
- *                   format: date-time
- *                 environment:
- *                   type: string
- *                   example: development
- */
+// Health check endpoint - MUST be early in middleware stack
 app.get('/health', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Server is running',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV
+    environment: process.env.NODE_ENV,
+    port: PORT
   });
 });
 
-// API routes
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/liquidity', liquidityRoutes);
-
-/**
- * @swagger
- * /:
- *   get:
- *     summary: API information and available endpoints
- *     tags: [System]
- *     responses:
- *       200:
- *         description: API information
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Welcome to ABOKI Liquidity Provider API
- *                 version:
- *                   type: string
- *                   example: "1.0.0"
- *                 documentation:
- *                   type: string
- *                   example: /api-docs
- *                 endpoints:
- *                   type: object
- */
+// ✅ ROOT ENDPOINT: Ensure this responds quickly
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Welcome to ABOKI Liquidity Provider API',
     version: '1.0.0',
-    documentation: '/api-docs',
-    endpoints: {
-      authentication: {
-        register: 'POST /api/auth/register',
-        login: 'POST /api/auth/login',
-        profile: 'GET /api/auth/profile (Protected)',
-        updateProfile: 'PUT /api/auth/profile (Protected)',
-        logout: 'POST /api/auth/logout (Protected)',
-        verifyEmail: 'GET /api/auth/verify-email/:token',
-        forgotPassword: 'POST /api/auth/forgot-password',
-        resetPassword: 'POST /api/auth/reset-password'
-      },
-      liquidity: {
-        createPosition: 'POST /api/liquidity/create (Protected)',
-        getPosition: 'GET /api/liquidity/position (Protected)',
-        getWallets: 'GET /api/liquidity/wallets (Protected)',
-        updateBank: 'PUT /api/liquidity/bank-account (Protected)',
-        withdraw: 'POST /api/liquidity/withdraw (Protected)',
-        transactions: 'GET /api/liquidity/transactions (Protected)',
-        banks: 'GET /api/liquidity/banks',
-        verifyAccount: 'POST /api/liquidity/verify-account'
-      },
-      documentation: {
-        swagger: 'GET /api-docs',
-        swaggerJson: 'GET /api-docs.json'
-      },
-      system: {
-        health: 'GET /health'
-      }
-    }
+    status: 'healthy',
+    port: PORT
   });
 });
+
+// Connect to database (with error handling)
+connectDB().catch(err => {
+  console.error('Database connection failed:', err);
+  // Don't crash the server, just log the error
+});
+
+// Swagger Documentation (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    explorer: true,
+    customCss: '.swagger-ui .topbar { display: none }',
+    customSiteTitle: 'ABOKI Liquidity API Documentation'
+  }));
+}
+
+// API routes
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/liquidity', liquidityRoutes);
 
 // Error handling middleware
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5001;
-
-const server = app.listen(PORT, () => {
+// ✅ CRITICAL: Start server and bind to all interfaces
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`
-🚀 ABOKI Liquidity Provider API running in ${process.env.NODE_ENV} mode on port ${PORT}
-📧 Email service configured with Brevo
-🔒 Security middleware enabled
-🛡️  Rate limiting active
-💰 Liquidity provider system enabled
-⚡ Gasless withdrawals supported (Base & Solana)
-📚 API Documentation available at http://localhost:${PORT}/api-docs
+🚀 ABOKI Liquidity Provider API running in ${process.env.NODE_ENV || 'development'} mode
+📡 Server listening on port ${PORT}
+🌐 Binding to 0.0.0.0:${PORT} for Render compatibility
+💾 Memory limit: ${process.memoryUsage().heapTotal / 1024 / 1024}MB
+📚 Health check: ${process.env.NODE_ENV === 'production' ? 'https://your-app.onrender.com/health' : `http://localhost:${PORT}/health`}
   `);
 });
 
-// Handle unhandled promise rejections
+// ✅ MEMORY FIX: Handle memory issues gracefully
+process.on('uncaughtException', (err: Error) => {
+  console.error('Uncaught Exception:', err.message);
+  console.error('Stack:', err.stack);
+  
+  // Graceful shutdown
+  server.close(() => {
+    process.exit(1);
+  });
+  
+  // Force exit if graceful shutdown fails
+  setTimeout(() => {
+    process.exit(1);
+  }, 5000);
+});
+
 process.on('unhandledRejection', (err: Error) => {
-  console.log(`Unhandled Rejection: ${err.message}`);
+  console.error('Unhandled Rejection:', err.message);
   server.close(() => {
     process.exit(1);
   });
 });
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (err: Error) => {
-  console.log(`Uncaught Exception: ${err.message}`);
-  process.exit(1);
-});
+// ✅ MEMORY MONITORING: Log memory usage periodically
+if (process.env.NODE_ENV === 'production') {
+  setInterval(() => {
+    const memUsage = process.memoryUsage();
+    const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
+    const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
+    
+    console.log(`💾 Memory: ${heapUsedMB}MB / ${heapTotalMB}MB`);
+    
+    // Warning if memory usage is high
+    if (heapUsedMB > 200) {
+      console.warn('⚠️  High memory usage detected');
+    }
+  }, 60000); // Every minute
+}
 
 export default app;
