@@ -1,3 +1,4 @@
+// User.ts - No changes needed (no duplicate indexes here)
 import mongoose, { Document, Schema, Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -28,7 +29,7 @@ const userSchema = new Schema<IUser>({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
+    unique: true, // This automatically creates an index
     lowercase: true,
     trim: true,
     match: [
@@ -109,4 +110,4 @@ userSchema.methods.toJSON = function() {
   return userObject;
 };
 
-export default mongoose.model<IUser>('User', userSchema);
+export const User = mongoose.model<IUser>('User', userSchema);

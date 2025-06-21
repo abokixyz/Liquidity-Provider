@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import crypto from 'crypto';
-import User, { IUser } from '../models/User';
+import  { User,IUser } from '../models/User';
 import brevoEmailService from '../services/brevoEmailService';
 
 interface AuthRequest extends Request {

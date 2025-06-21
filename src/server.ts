@@ -11,6 +11,7 @@ dotenv.config();
 
 import connectDB from './config/database';
 import authRoutes from './routes/auth';
+import liquidityRoutes from './routes/liquidity';
 import { notFound, errorHandler } from './middleware/error';
 
 // Connect to database
@@ -58,7 +59,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   explorer: true,
   customCss: '.swagger-ui .topbar { display: none }',
-  customSiteTitle: 'ABOKI Auth API Documentation',
+  customSiteTitle: 'ABOKI Liquidity API Documentation',
   swaggerOptions: {
     persistAuthorization: true,
     displayRequestDuration: true,
@@ -113,6 +114,7 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/liquidity', liquidityRoutes);
 
 /**
  * @swagger
@@ -133,7 +135,7 @@ app.use('/api/auth', authLimiter, authRoutes);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: Welcome to ABOKI Authentication API
+ *                   example: Welcome to ABOKI Liquidity Provider API
  *                 version:
  *                   type: string
  *                   example: "1.0.0"
@@ -146,11 +148,11 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
-    message: 'Welcome to ABOKI Authentication API',
+    message: 'Welcome to ABOKI Liquidity Provider API',
     version: '1.0.0',
     documentation: '/api-docs',
     endpoints: {
-      auth: {
+      authentication: {
         register: 'POST /api/auth/register',
         login: 'POST /api/auth/login',
         profile: 'GET /api/auth/profile (Protected)',
@@ -159,6 +161,16 @@ app.get('/', (req, res) => {
         verifyEmail: 'GET /api/auth/verify-email/:token',
         forgotPassword: 'POST /api/auth/forgot-password',
         resetPassword: 'POST /api/auth/reset-password'
+      },
+      liquidity: {
+        createPosition: 'POST /api/liquidity/create (Protected)',
+        getPosition: 'GET /api/liquidity/position (Protected)',
+        getWallets: 'GET /api/liquidity/wallets (Protected)',
+        updateBank: 'PUT /api/liquidity/bank-account (Protected)',
+        withdraw: 'POST /api/liquidity/withdraw (Protected)',
+        transactions: 'GET /api/liquidity/transactions (Protected)',
+        banks: 'GET /api/liquidity/banks',
+        verifyAccount: 'POST /api/liquidity/verify-account'
       },
       documentation: {
         swagger: 'GET /api-docs',
@@ -175,14 +187,16 @@ app.get('/', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5001;
 
 const server = app.listen(PORT, () => {
   console.log(`
-🚀 Server running in ${process.env.NODE_ENV} mode on port ${PORT}
+🚀 ABOKI Liquidity Provider API running in ${process.env.NODE_ENV} mode on port ${PORT}
 📧 Email service configured with Brevo
 🔒 Security middleware enabled
 🛡️  Rate limiting active
+💰 Liquidity provider system enabled
+⚡ Gasless withdrawals supported (Base & Solana)
 📚 API Documentation available at http://localhost:${PORT}/api-docs
   `);
 });
