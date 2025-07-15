@@ -1,3 +1,6 @@
 /node_modules
 /dist
 .env
+debug-key-format.js
+fix-wallet-address.js
+migrate-to-encryption.js
