@@ -24,9 +24,9 @@ const handleValidationErrors = (req: express.Request, res: express.Response, nex
       message: 'Validation failed',
       errors: errors.array()
     });
-    return;
+    return; // Ensure function exits after sending response
   }
-  return next();
+  next();
 };
 
 // Bank account validation - ✅ FIXED: Bank code is 6 digits
@@ -54,15 +54,15 @@ const validateBankAccount = [
     .trim()
 ];
 
-// Withdrawal validation
+// Withdrawal validation - ✅ UPDATED: Lower minimum to 0.5 USDC
 const validateWithdrawal = [
   body('network')
     .isIn(['base', 'solana'])
     .withMessage('Network must be either "base" or "solana"'),
     
   body('amount')
-    .isFloat({ min: 10 })
-    .withMessage('Amount must be at least 10 USDC'),
+    .isFloat({ min: 0.5 })  // ✅ CHANGED: From 10 to 0.5 USDC minimum
+    .withMessage('Amount must be at least 0.5 USDC'),
     
   body('destinationAddress')
     .notEmpty()
@@ -318,6 +318,39 @@ router.get('/transactions', protect, getTransactionHistory);
  *         description: Unauthorized
  */
 router.post('/refresh-balances', protect, refreshBalances);
+
+/**
+ * @swagger
+ * /api/liquidity/service-status:
+ *   get:
+ *     summary: Get gasless service configuration status
+ *     tags: [Liquidity]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Service status retrieved successfully
+ */
+// Ensure these types are imported from express
+
+router.get('/service-status', protect, async (req: express.Request, res: express.Response) => {
+  try {
+    const gaslessService = (await import('../services/gaslessService')).default;
+    const status = gaslessService.getServiceStatus();
+    
+    res.status(200).json({
+      success: true,
+      message: 'Service status retrieved',
+      data: status
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get service status',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
 
 /**
  * @swagger

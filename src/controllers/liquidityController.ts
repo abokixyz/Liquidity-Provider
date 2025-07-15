@@ -96,7 +96,8 @@ export const createLiquidityPosition = async (req: AuthRequest, res: Response): 
   }
 };
 
-// @desc    Get user's liquidity position
+
+  // @desc    Get user's liquidity position
 // @route   GET /api/liquidity/position
 // @access  Private
 export const getLiquidityPosition = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -150,7 +151,66 @@ export const getLiquidityPosition = async (req: AuthRequest, res: Response): Pro
     }
   };
   
-
+  // @desc    Get wallet addresses for funding
+  // @route   GET /api/liquidity/wallets
+  // @access  Private
+  export const getWalletAddresses = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user!._id;
+  
+      const walletsResult = await walletService.getUserWallets(userId.toString());
+      
+      if (!walletsResult.success) {
+        res.status(404).json({
+          success: false,
+          message: 'No wallets found for user'
+        });
+        return;
+      }
+  
+      // ✅ FIXED: Get real current balances
+      console.log('💰 Fetching real-time balances...');
+      const balancesResult = await walletService.getWalletBalances(userId.toString());
+  
+      res.status(200).json({
+        success: true,
+        message: 'Send USDC to these addresses to fund your liquidity position',
+        data: {
+          networks: {
+            base: {
+              address: walletsResult.wallets?.baseAddress ?? '',
+              network: 'Base Mainnet',
+              token: 'USDC',
+              tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+              currentBalance: balancesResult.success ? balancesResult.balances?.baseUSDC : 0,
+              minimumDeposit: 0.01 // ✅ UPDATED: Very low minimum for deposits ($0.01)
+            },
+            solana: {
+              address: walletsResult.wallets?.solanaAddress ?? '',
+              network: 'Solana Mainnet',
+              token: 'USDC',
+              tokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+              currentBalance: balancesResult.success ? balancesResult.balances?.solanaUSDC : 0,
+              minimumDeposit: 0.01 // ✅ UPDATED: Very low minimum for deposits ($0.01)
+            }
+          },
+          instructions: {
+            base: "Send any amount of USDC on Base network to the address above. No minimum deposit required!", // ✅ UPDATED: No minimum
+            solana: "Send any amount of USDC on Solana network to the address above. No minimum deposit required!" // ✅ UPDATED: No minimum
+          },
+          totalBalance: balancesResult.success ? balancesResult.balances?.totalUSDC : 0, // ✅ ADDED: Total balance
+          lastUpdated: new Date().toISOString() // ✅ ADDED: Last update timestamp
+        }
+      });
+  
+    } catch (error) {
+      console.error('❌ Get wallet addresses error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error fetching wallet addresses'
+      });
+    }
+  };
   
   // ✅ NEW: Add endpoint to refresh balances manually
   // @desc    Refresh wallet balances from blockchain
@@ -190,6 +250,7 @@ export const getLiquidityPosition = async (req: AuthRequest, res: Response): Pro
       });
     }
   };
+
 
 // @desc    Update bank account
 // @route   PUT /api/liquidity/bank-account
@@ -285,141 +346,144 @@ export const getTransactionHistory = async (req: AuthRequest, res: Response): Pr
   }
 };
 
-// @desc    Get wallet addresses for funding
-// @route   GET /api/liquidity/wallets
-// @access  Private
-export const getWalletAddresses = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const userId = req.user!._id;
 
-    const walletsResult = await walletService.getUserWallets(userId.toString());
-    
-    if (!walletsResult.success) {
-      res.status(404).json({
-        success: false,
-        message: 'No wallets found for user'
-      });
-      return;
-    }
 
-    // Get current balances
-    const balancesResult = await walletService.getWalletBalances(userId.toString());
-
-    res.status(200).json({
-      success: true,
-      message: 'Send USDC to these addresses to fund your liquidity position',
-      data: {
-        networks: {
-          base: {
-            address: walletsResult.wallets?.baseAddress ?? '',
-            network: 'Base Mainnet',
-            token: 'USDC',
-            tokenAddress: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-            currentBalance: balancesResult.success ? balancesResult.balances?.baseUSDC : 0
-          },
-          solana: {
-            address: walletsResult.wallets?.solanaAddress ?? '',
-            network: 'Solana Mainnet',
-            token: 'USDC',
-            tokenAddress: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-            currentBalance: balancesResult.success ? balancesResult.balances?.solanaUSDC : 0
-          }
-        },
-        instructions: {
-          base: "Send USDC on Base network to the address above. Minimum deposit: $10 USDC",
-          solana: "Send USDC on Solana network to the address above. Minimum deposit: $10 USDC"
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Get wallet addresses error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching wallet addresses'
-    });
-  }
-};
-
-// @desc    Initiate withdrawal (gasless)
+// @desc    Initiate withdrawal (gasless) - ✅ FIXED: Actually executes the transfer
 // @route   POST /api/liquidity/withdraw
 // @access  Private
 export const initiateWithdrawal = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const { network, amount, destinationAddress } = req.body;
-    const userId = req.user!._id;
-
-    console.log('💸 Initiating withdrawal for user:', userId);
-    console.log('- Network:', network);
-    console.log('- Amount:', amount);
-    console.log('- Destination:', destinationAddress);
-
-    // Get liquidity position
-    const position = await LiquidityPosition.findOne({ userId, isActive: true });
-    if (!position) {
-      res.status(404).json({
-        success: false,
-        message: 'No active liquidity position found'
+    try {
+      const { network, amount, destinationAddress } = req.body;
+      const userId = req.user!._id;
+  
+      console.log('💸 Initiating withdrawal for user:', userId);
+      console.log('- Network:', network);
+      console.log('- Amount:', amount);
+      console.log('- Destination:', destinationAddress);
+  
+      // ✅ STEP 1: Update balances from blockchain first
+      console.log('🔄 Updating balances from blockchain...');
+      await walletService.updateLiquidityPositionBalances(userId.toString());
+  
+      // Get updated liquidity position
+      const position = await LiquidityPosition.findOne({ userId, isActive: true });
+      if (!position) {
+        res.status(404).json({
+          success: false,
+          message: 'No active liquidity position found'
+        });
+        return;
+      }
+  
+      console.log('💰 Current balances:', {
+        base: position.baseBalance,
+        solana: position.solanaBalance,
+        total: position.totalBalance
       });
-      return;
-    }
-
-    // Validate network and balance
-    if (network === 'base' && position.baseBalance < amount) {
-      res.status(400).json({
-        success: false,
-        message: `Insufficient Base USDC balance. Available: ${position.baseBalance}`
-      });
-      return;
-    }
-
-    if (network === 'solana' && position.solanaBalance < amount) {
-      res.status(400).json({
-        success: false,
-        message: `Insufficient Solana USDC balance. Available: ${position.solanaBalance}`
-      });
-      return;
-    }
-
-    // Create transaction record
-    const transaction = new Transaction({
-      userId,
-      liquidityPositionId: position._id,
-      type: 'withdrawal',
-      network,
-      amount,
-      toAddress: destinationAddress,
-      status: 'pending'
-    });
-
-    await transaction.save();
-
-    // TODO: Implement actual gasless withdrawal logic here
-    // This would call the gasless transfer functions from your existing files
-    console.log('🚀 Withdrawal transaction created, pending gasless execution...');
-
-    res.status(202).json({
-      success: true,
-      message: 'Withdrawal initiated successfully',
-      data: {
-        transactionId: transaction._id,
+  
+      // ✅ STEP 2: Validate network and balance with real-time data
+      if (network === 'base' && position.baseBalance < amount) {
+        res.status(400).json({
+          success: false,
+          message: `Insufficient Base USDC balance. Available: ${position.baseBalance} USDC, Requested: ${amount} USDC`
+        });
+        return;
+      }
+  
+      if (network === 'solana' && position.solanaBalance < amount) {
+        res.status(400).json({
+          success: false,
+          message: `Insufficient Solana USDC balance. Available: ${position.solanaBalance} USDC, Requested: ${amount} USDC`
+        });
+        return;
+      }
+  
+      // ✅ STEP 3: Create transaction record
+      const transaction = new Transaction({
+        userId,
+        liquidityPositionId: position._id,
+        type: 'withdrawal',
         network,
         amount,
-        destinationAddress,
-        status: 'pending',
-        estimatedCompletionTime: '2-5 minutes',
-        note: 'Transaction will be processed using gasless technology - you pay no gas fees!'
+        toAddress: destinationAddress,
+        status: 'pending'
+      });
+  
+      await transaction.save();
+      console.log('📝 Transaction record created:', transaction._id);
+  
+      try {
+        // ✅ STEP 4: Execute the actual gasless transfer
+        console.log('🚀 Executing gasless transfer...');
+        
+        const gaslessService = (await import('../services/gaslessService')).default;
+        
+        // Check if gasless service is configured
+        if (!gaslessService.isConfigured()) {
+          throw new Error('Gasless service not properly configured. Please check environment variables.');
+        }
+  
+        // Execute the transfer
+        const transferResult = await gaslessService.executeGaslessTransfer(
+          userId.toString(),
+          network,
+          destinationAddress,
+          amount,
+          transaction._id.toString()
+        );
+  
+        console.log('✅ Gasless transfer completed:', transferResult);
+  
+        // ✅ STEP 5: Update liquidity position balances after successful transfer
+        await walletService.updateLiquidityPositionBalances(userId.toString());
+  
+        // Return success response
+        res.status(200).json({
+          success: true,
+          message: 'Withdrawal completed successfully',
+          data: {
+            transactionId: transaction._id,
+            txHash: transferResult.txHash,
+            network,
+            amount,
+            destinationAddress,
+            status: 'confirmed',
+            gasFeePaidBy: transferResult.gasFeePaidBy,
+            explorerUrl: transferResult.explorerUrl,
+            completedAt: new Date().toISOString()
+          }
+        });
+  
+      } catch (transferError) {
+        console.error('❌ Gasless transfer failed:', transferError);
+  
+        // Update transaction status to failed
+        await Transaction.findByIdAndUpdate(transaction._id, {
+          status: 'failed',
+          failureReason: transferError instanceof Error ? transferError.message : 'Transfer execution failed'
+        });
+  
+        // Return error response with specific details
+        res.status(500).json({
+          success: false,
+          message: 'Withdrawal failed during execution',
+          error: transferError instanceof Error ? transferError.message : 'Unknown transfer error',
+          data: {
+            transactionId: transaction._id,
+            status: 'failed'
+          }
+        });
       }
-    });
-
-  } catch (error) {
-    console.error('❌ Initiate withdrawal error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error initiating withdrawal'
-    });
-  }
-};
+  
+    } catch (error) {
+      console.error('❌ Initiate withdrawal error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error initiating withdrawal',
+        error: error instanceof Error ? error.message : 'Unknown server error'
+      });
+    }
+  };
 
 // @desc    Get supported banks for account setup
 // @route   GET /api/liquidity/banks
