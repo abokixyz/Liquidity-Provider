@@ -34,12 +34,28 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// CORS configuration - optimized for memory
+// ✅ FIXED: CORS configuration for production deployment
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5001',
+  'https://aboki-liquidity.vercel.app',
+  // Add any other frontend URLs you might deploy to
+];
+
+// If FRONTEND_URL is set in environment, use it, otherwise use the allowed origins array
+const corsOrigin = process.env.FRONTEND_URL ? 
+  process.env.FRONTEND_URL.split(',').map(url => url.trim()) : 
+  allowedOrigins;
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5001',
+  origin: corsOrigin,
   credentials: true,
-  maxAge: 86400 // Cache preflight for 24 hours
+  maxAge: 86400, // Cache preflight for 24 hours
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
+
+console.log('🌐 CORS configured for origins:', corsOrigin);
 
 // ✅ MEMORY: Conservative rate limiting
 const limiter = rateLimit({
@@ -86,7 +102,8 @@ app.get('/health', (req, res) => {
     port: PORT,
     memory: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    corsOrigins: corsOrigin
   });
 });
 
@@ -161,6 +178,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 📡 Port: ${PORT} (binding to 0.0.0.0)
 💾 Memory: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB used
 🌍 Environment: ${process.env.NODE_ENV || 'development'}
+🌐 CORS Origins: ${Array.isArray(corsOrigin) ? corsOrigin.join(', ') : corsOrigin}
 ⚡ Health: ${process.env.NODE_ENV === 'production' ? 'https://your-app.onrender.com/health' : `http://localhost:${PORT}/health`}
 📚 API Docs: ${process.env.NODE_ENV !== 'production' ? `http://localhost:${PORT}/api-docs` : 'Production - docs disabled'}
   `);
