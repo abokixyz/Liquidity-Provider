@@ -8,10 +8,14 @@ import swaggerUi from 'swagger-ui-express';
 // Load environment variables FIRST
 dotenv.config();
 
+console.log('🔍 Environment Variables Debug:');
+console.log('PORT:', process.env.PORT);
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('FRONTEND_URL:', process.env.FRONTEND_URL);
+
 // Import swagger config with error handling - FIXED
 let swaggerSpec: any = null;
 try {
-  // Use require since we're in CommonJS mode
   const swaggerModule = require('./config/swagger');
   swaggerSpec = swaggerModule.default || swaggerModule;
 } catch (error) {
@@ -34,51 +38,26 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// ✅ FIXED: CORS configuration for production deployment
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5001',
-  'https://aboki-liquidity.vercel.app',
-];
-
-// Enhanced CORS setup with error handling
-let corsOrigin: string[] | string;
-try {
-  corsOrigin = process.env.FRONTEND_URL ? 
-    process.env.FRONTEND_URL.split(',').map(url => url.trim()) : 
-    allowedOrigins;
-} catch (error) {
-  console.error('❌ Error parsing FRONTEND_URL:', error);
-  corsOrigin = allowedOrigins;
-}
-
-// More permissive CORS for debugging
+// ✅ TEMPORARY: Extremely permissive CORS for debugging
+console.log('🚨 USING PERMISSIVE CORS FOR DEBUGGING');
 app.use(cors({
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Allow requests with no origin (like mobile apps, curl, Postman)
-    if (!origin) return callback(null, true);
-    
-    // Check if origin is in allowed list
-    if (Array.isArray(corsOrigin) ? corsOrigin.includes(origin) : corsOrigin === origin) {
-      return callback(null, true);
-    }
-    
-    console.log('🚫 CORS blocked origin:', origin);
-    callback(new Error('Not allowed by CORS'));
-  },
+  origin: true, // Allow ALL origins temporarily
   credentials: true,
-  maxAge: 86400,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
+  optionsSuccessStatus: 200
 }));
 
-console.log('🌐 CORS configured for origins:', corsOrigin);
+// Log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`📥 ${req.method} ${req.path} - Origin: ${req.headers.origin || 'none'}`);
+  next();
+});
 
 // ✅ MEMORY: Conservative rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 50,
+  max: 100, // Increased for debugging
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -91,7 +70,7 @@ app.use(limiter);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 10, // Increased for debugging
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -112,27 +91,47 @@ app.use(express.urlencoded({
   parameterLimit: 100
 }));
 
-// ✅ PRIORITY: Health check endpoint
+// ✅ PRIORITY: Enhanced Health check endpoint
 app.get('/health', (req, res) => {
   const memUsage = process.memoryUsage();
-  res.status(200).json({
+  const healthData = {
     status: 'ok',
+    timestamp: new Date().toISOString(),
     port: PORT,
     memory: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
-    corsOrigins: corsOrigin,
-    frontendUrl: process.env.FRONTEND_URL || 'not set'
-  });
+    frontendUrl: process.env.FRONTEND_URL || 'not set',
+    corsEnabled: true,
+    corsMode: 'permissive-debug',
+    requestOrigin: req.headers.origin || 'none',
+    userAgent: req.headers['user-agent'] || 'none'
+  };
+  
+  console.log('🏥 Health check called:', healthData);
+  res.status(200).json(healthData);
 });
 
 // ✅ ROOT: Minimal response
 app.get('/', (req, res) => {
+  console.log('🏠 Root endpoint called');
   res.status(200).json({
     success: true,
     message: 'ABOKI Liquidity Provider API',
     version: '1.0.0',
-    port: PORT
+    port: PORT,
+    corsEnabled: true
+  });
+});
+
+// ✅ DEBUG: Test CORS endpoint
+app.get('/test-cors', (req, res) => {
+  console.log('🧪 CORS test endpoint called from:', req.headers.origin);
+  res.status(200).json({
+    success: true,
+    message: 'CORS is working!',
+    origin: req.headers.origin,
+    method: req.method
   });
 });
 
@@ -145,7 +144,6 @@ const connectWithRetry = async (): Promise<void> => {
     console.log('✅ Database connected successfully');
   } catch (error: any) {
     console.error('❌ Database connection failed:', error?.message || String(error));
-    // Retry after delay
     setTimeout(connectWithRetry, 5000);
   }
 };
@@ -156,6 +154,7 @@ connectWithRetry();
 // Middleware to check DB connection for API routes
 app.use((req, res, next) => {
   if (!dbConnected && req.path.startsWith('/api/')) {
+    console.log('⚠️ API request blocked - database not connected');
     return res.status(503).json({
       success: false,
       message: 'Service temporarily unavailable - database connecting'
@@ -181,9 +180,16 @@ if (process.env.NODE_ENV !== 'production' && swaggerSpec) {
   console.log('📚 Swagger API docs disabled');
 }
 
-// API routes
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/liquidity', liquidityRoutes);
+// API routes with logging
+app.use('/api/auth', (req, res, next) => {
+  console.log(`🔐 Auth route: ${req.method} ${req.path} from ${req.headers.origin}`);
+  next();
+}, authLimiter, authRoutes);
+
+app.use('/api/liquidity', (req, res, next) => {
+  console.log(`💧 Liquidity route: ${req.method} ${req.path} from ${req.headers.origin}`);
+  next();
+}, liquidityRoutes);
 
 // Error handling middleware
 app.use(notFound);
@@ -193,18 +199,22 @@ app.use(errorHandler);
 const server = app.listen(PORT, '0.0.0.0', () => {
   const memUsage = process.memoryUsage();
   console.log(`
-🚀 ABOKI Liquidity Provider API Started
+🚀 ABOKI Liquidity Provider API Started (DEBUG MODE)
 📡 Port: ${PORT} (binding to 0.0.0.0)
 💾 Memory: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB used
 🌍 Environment: ${process.env.NODE_ENV || 'development'}
-🌐 CORS Origins: ${Array.isArray(corsOrigin) ? corsOrigin.join(', ') : corsOrigin}
+🌐 CORS Mode: PERMISSIVE (DEBUG - ALLOW ALL ORIGINS)
 🔗 Frontend URL: ${process.env.FRONTEND_URL || 'not set'}
-⚡ Health: ${process.env.NODE_ENV === 'production' ? 'https://your-app.onrender.com/health' : `http://localhost:${PORT}/health`}
+⚡ Health: https://liquidity-provider.onrender.com/health
+🧪 CORS Test: https://liquidity-provider.onrender.com/test-cors
 📚 API Docs: ${process.env.NODE_ENV !== 'production' ? `http://localhost:${PORT}/api-docs` : 'Production - docs disabled'}
+
+🚨 IMPORTANT: This is a DEBUG version with permissive CORS!
+   Replace with production CORS configuration after testing.
   `);
 });
 
-// ✅ ERROR HANDLING: Clean error handling without GC forcing
+// ✅ ERROR HANDLING
 process.on('uncaughtException', (err: Error) => {
   console.error('💥 Uncaught Exception:', err.message);
   console.error('Stack:', err.stack);
@@ -214,7 +224,6 @@ process.on('uncaughtException', (err: Error) => {
     process.exit(1);
   });
   
-  // Force exit after timeout
   setTimeout(() => {
     console.log('Forced exit after timeout');
     process.exit(1);
@@ -230,29 +239,6 @@ process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
     process.exit(1);
   });
 });
-
-// ✅ MEMORY MONITORING: Simple monitoring without GC forcing
-if (process.env.NODE_ENV === 'production') {
-  setInterval(() => {
-    const memUsage = process.memoryUsage();
-    const heapUsedMB = Math.round(memUsage.heapUsed / 1024 / 1024);
-    const heapTotalMB = Math.round(memUsage.heapTotal / 1024 / 1024);
-    
-    // Log memory usage
-    console.log(`💾 Memory: ${heapUsedMB}MB / ${heapTotalMB}MB`);
-    
-    // Warning thresholds
-    if (heapUsedMB > 200) {
-      console.warn(`⚠️  HIGH MEMORY WARNING: ${heapUsedMB}MB used`);
-    }
-    
-    // Critical memory - restart
-    if (heapUsedMB > 800) {
-      console.error('🚨 CRITICAL MEMORY USAGE - Restarting server');
-      server.close(() => process.exit(1));
-    }
-  }, 60000); // Check every minute
-}
 
 // ✅ GRACEFUL SHUTDOWN
 process.on('SIGTERM', () => {
