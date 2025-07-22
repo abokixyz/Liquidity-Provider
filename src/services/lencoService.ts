@@ -39,7 +39,7 @@ class LencoService {
   private isConfigured: boolean;
 
   constructor() {
-    const baseURL = process.env.LENCO_BASE_URL || 'https://sandbox.lenco.co/access/v1';
+    const baseURL = process.env.LENCO_BASE_URL || 'https://api.lenco.co/access/v1';
     const apiKey = process.env.LENCO_API_KEY;
 
     this.isConfigured = !!apiKey;
