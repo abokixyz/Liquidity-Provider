@@ -39,20 +39,38 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:5001',
   'https://aboki-liquidity.vercel.app',
-  // Add any other frontend URLs you might deploy to
 ];
 
-// If FRONTEND_URL is set in environment, use it, otherwise use the allowed origins array
-const corsOrigin = process.env.FRONTEND_URL ? 
-  process.env.FRONTEND_URL.split(',').map(url => url.trim()) : 
-  allowedOrigins;
+// Enhanced CORS setup with error handling
+let corsOrigin: string[] | string;
+try {
+  corsOrigin = process.env.FRONTEND_URL ? 
+    process.env.FRONTEND_URL.split(',').map(url => url.trim()) : 
+    allowedOrigins;
+} catch (error) {
+  console.error('❌ Error parsing FRONTEND_URL:', error);
+  corsOrigin = allowedOrigins;
+}
 
+// More permissive CORS for debugging
 app.use(cors({
-  origin: corsOrigin,
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Allow requests with no origin (like mobile apps, curl, Postman)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
+    if (Array.isArray(corsOrigin) ? corsOrigin.includes(origin) : corsOrigin === origin) {
+      return callback(null, true);
+    }
+    
+    console.log('🚫 CORS blocked origin:', origin);
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
-  maxAge: 86400, // Cache preflight for 24 hours
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  maxAge: 86400,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  optionsSuccessStatus: 200 // Some legacy browsers choke on 204
 }));
 
 console.log('🌐 CORS configured for origins:', corsOrigin);
@@ -103,7 +121,8 @@ app.get('/health', (req, res) => {
     memory: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development',
-    corsOrigins: corsOrigin
+    corsOrigins: corsOrigin,
+    frontendUrl: process.env.FRONTEND_URL || 'not set'
   });
 });
 
@@ -179,6 +198,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 💾 Memory: ${Math.round(memUsage.heapUsed / 1024 / 1024)}MB used
 🌍 Environment: ${process.env.NODE_ENV || 'development'}
 🌐 CORS Origins: ${Array.isArray(corsOrigin) ? corsOrigin.join(', ') : corsOrigin}
+🔗 Frontend URL: ${process.env.FRONTEND_URL || 'not set'}
 ⚡ Health: ${process.env.NODE_ENV === 'production' ? 'https://your-app.onrender.com/health' : `http://localhost:${PORT}/health`}
 📚 API Docs: ${process.env.NODE_ENV !== 'production' ? `http://localhost:${PORT}/api-docs` : 'Production - docs disabled'}
   `);
