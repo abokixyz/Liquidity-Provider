@@ -540,7 +540,6 @@ router.post('/test/:webhookId', apiKeyAuth, async (req: express.Request, res: ex
       webhookId: webhook.id,
       timestamp: new Date().toISOString()
     });
-
     res.status(200).json({
       success: true,
       message: 'Test webhook sent successfully',
