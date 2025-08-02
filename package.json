@@ -13,6 +13,12 @@
     "postbuild": "echo 'Build completed - checking dist folder' && ls -la dist/",
     "prebuild": "rm -rf dist",
     "health": "node -e \"console.log('Node version:', process.version); console.log('Memory limit test passed')\"",
+    "create-api-key": "ts-node scripts/createApiKey.ts",
+    "create-admin-key": "ts-node scripts/createAdminApiKey.ts",
+    "batch-create-keys": "ts-node scripts/batchCreateApiKeys.ts",
+    "list-api-keys": "ts-node scripts/listApiKeys.ts",
+    "revoke-api-key": "ts-node scripts/revokeApiKey.ts",
+    "manage-api-keys": "ts-node scripts/manageApiKeys.ts",
     
     "//": "=== ADMIN MANAGEMENT SCRIPTS ===",
     "grant-admin": "ts-node src/scripts/grantAdmin.ts",
