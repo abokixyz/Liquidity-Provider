@@ -27,11 +27,9 @@ import connectDB from './config/database';
 import authRoutes from './routes/auth';
 import liquidityRoutes from './routes/liquidity';
 import adminRoutes from './routes/admin';
+import publicApiRoutes from './routes/publicApi'; // ✅ ADDED: Import public API routes
 import { webhookRoutes, monitoringService } from './services/webhookService';
 import { notFound, errorHandler } from './middleware/error';
-
-// Optional: Add public API routes if you create them
-// import publicApiRoutes from './routes/publicApi';
 
 const app = express();
 
@@ -297,11 +295,11 @@ app.use('/api/webhooks', (req, res, next) => {
   next();
 }, webhookRoutes);
 
-// ✅ NEW: Public API routes (uncomment when you create publicApi.ts)
-// app.use('/api/public', (req, res, next) => {
-//   console.log(`🌐 Public API: ${req.method} ${req.path} - API Key: ${req.headers['x-api-key'] ? 'Present' : 'Missing'} - Origin: ${req.headers.origin || 'direct'}`);
-//   next();
-// }, publicApiRoutes);
+// ✅ FIXED: Public API routes - NOW ENABLED
+app.use('/api/public', (req, res, next) => {
+  console.log(`🌐 Public API: ${req.method} ${req.path} - API Key: ${req.headers['x-api-key'] ? 'Present' : 'Missing'} - Origin: ${req.headers.origin || 'direct'}`);
+  next();
+}, publicApiRoutes);
 
 // Error handling middleware
 app.use(notFound);
@@ -313,7 +311,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   const monitoringStatus = monitoringService.getStatus();
   
   console.log(`
-🚀 ABOKI Liquidity Provider API Started (ENHANCED WITH WEBHOOKS)
+🚀 ABOKI Liquidity Provider API Started (ENHANCED WITH WEBHOOKS & PUBLIC API)
 
 📡 Server Details:
    Port: ${PORT} (binding to 0.0.0.0)
@@ -345,9 +343,11 @@ const server = app.listen(PORT, '0.0.0.0', () => {
    Test: POST http://localhost:${PORT}/api/webhooks/test/:id
    Stats: GET http://localhost:${PORT}/api/webhooks/stats
 
-🌐 Public API Endpoints:
+🌐 Public API Endpoints (✅ NOW ACTIVE):
    Stats: GET http://localhost:${PORT}/api/public/liquidity/stats
    Providers: GET http://localhost:${PORT}/api/public/liquidity/providers
+   Real-time: GET http://localhost:${PORT}/api/public/liquidity/realtime
+   Health: GET http://localhost:${PORT}/api/public/health
 
 📡 Webhook Features:
    Real-time Notifications: ✅ Active
@@ -369,6 +369,10 @@ const server = app.listen(PORT, '0.0.0.0', () => {
    Get Liquidity Stats:
    curl -H "x-api-key: YOUR_API_KEY" \\
      http://localhost:${PORT}/api/public/liquidity/stats
+   
+   Get Providers List:
+   curl -H "x-api-key: YOUR_API_KEY" \\
+     "http://localhost:${PORT}/api/public/liquidity/providers?limit=50&minBalance=1000"
    
    Test Webhook:
    curl -X POST http://localhost:${PORT}/api/webhooks/test/WEBHOOK_ID \\

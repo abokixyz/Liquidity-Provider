@@ -2,13 +2,13 @@ import express from 'express';
 import { LiquidityPosition } from '../models/Liquidity';
 import { User } from '../models/User';
 import { Transaction } from '../models/Transaction';
-import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
+import { createApiKeyRateLimit } from '../middleware/apiKeyAuth';
 
 const router = express.Router();
 
-// ✅ API Key Authentication Middleware
-const apiKeyAuth = (req: Request, res: Response, next: express.NextFunction): void => {
+// ✅ Simple API Key Authentication for Public API (uses environment variables)
+const publicApiKeyAuth = (req: Request, res: Response, next: express.NextFunction): void => {
   const apiKey = req.headers['x-api-key'] || req.query.apiKey;
   const validApiKeys = (process.env.PUBLIC_API_KEYS || '').split(',').map(key => key.trim());
   
@@ -21,25 +21,15 @@ const apiKeyAuth = (req: Request, res: Response, next: express.NextFunction): vo
     return;
   }
   
-  console.log('✅ Valid API key used:', (apiKey as string).substring(0, 8) + '...');
+  console.log('✅ Valid public API key used:', (apiKey as string).substring(0, 8) + '...');
   next();
 };
 
-// ✅ Rate limiting for public API
-const publicApiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each API key to 100 requests per windowMs
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    return (req.headers['x-api-key'] as string) || req.ip || '';
-  },
-  message: {
-    success: false,
-    message: 'Too many requests, please try again later',
-    code: 'RATE_LIMIT_EXCEEDED'
-  }
-});
+// ✅ Rate limiting for public API using existing middleware
+const publicApiLimiter = createApiKeyRateLimit(
+  15 * 60 * 1000, // 15 minutes
+  100             // 100 requests per 15 minutes
+);
 
 /**
  * @swagger
@@ -83,7 +73,7 @@ const publicApiLimiter = rateLimit({
  *                     lastUpdated:
  *                       type: string
  */
-router.get('/stats', publicApiLimiter, apiKeyAuth, async (req: Request, res: Response): Promise<void> => {
+router.get('/liquidity/stats', publicApiKeyAuth, publicApiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const format = req.query.format || 'json';
     
@@ -225,7 +215,7 @@ router.get('/stats', publicApiLimiter, apiKeyAuth, async (req: Request, res: Res
  *           type: string
  *           enum: [base, solana, total]
  */
-router.get('/providers', publicApiLimiter, apiKeyAuth, async (req: Request, res: Response): Promise<void> => {
+router.get('/liquidity/providers', publicApiKeyAuth, publicApiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { limit = 20, minBalance, network = 'total' } = req.query;
     const limitNum = Math.min(Number(limit), 100); // Max 100 results
@@ -295,7 +285,7 @@ router.get('/providers', publicApiLimiter, apiKeyAuth, async (req: Request, res:
  *     summary: Get real-time liquidity data with WebSocket info (External API)
  *     tags: [Public API]
  */
-router.get('/realtime', publicApiLimiter, apiKeyAuth, async (req: Request, res: Response): Promise<void> => {
+router.get('/liquidity/realtime', publicApiKeyAuth, publicApiLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     console.log('🌐 Public API: Real-time data requested');
     
