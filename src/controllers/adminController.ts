@@ -4,261 +4,365 @@ import { User, IUser } from '../models/User';
 import { Wallet } from '../models/Wallet';
 import { Transaction } from '../models/Transaction';
 import walletService from '../services/walletService';
+import { PipelineStage } from 'mongoose';
 
 interface AuthRequest extends Request {
   user?: IUser;
 }
 
-// @desc    Get all liquidity providers with balance filtering
-// @route   GET /api/admin/liquidity-providers
-// @access  Private/Admin
 export const getAllLiquidityProviders = async (req: AuthRequest, res: Response): Promise<void> => {
-  try {
-    const {
-      minBalance,
-      maxBalance,
-      network = 'total',
-      liquidityType,
-      isVerified,
-      isActive,
-      sortBy = 'totalBalance',
-      sortOrder = 'desc',
-      page = 1,
-      limit = 20,
-      search
-    } = req.query;
-
-    console.log('🔍 Admin fetching liquidity providers with filters:', {
-      minBalance,
-      maxBalance,
-      network,
-      liquidityType,
-      isVerified,
-      isActive,
-      sortBy,
-      sortOrder,
-      page,
-      limit,
-      search
-    });
-
-    // Build the filter object
-    const filter: any = {};
-    
-    // Basic filters
-    if (liquidityType) filter.liquidityType = liquidityType;
-    if (isVerified !== undefined) filter.isVerified = isVerified === 'true';
-    if (isActive !== undefined) filter.isActive = isActive === 'true';
-
-    // Balance range filters
-    const balanceFilter: any = {};
-    if (minBalance || maxBalance) {
-      if (network === 'base') {
-        if (minBalance) balanceFilter.baseBalance = { $gte: Number(minBalance) };
-        if (maxBalance) balanceFilter.baseBalance = { ...balanceFilter.baseBalance, $lte: Number(maxBalance) };
-      } else if (network === 'solana') {
-        if (minBalance) balanceFilter.solanaBalance = { $gte: Number(minBalance) };
-        if (maxBalance) balanceFilter.solanaBalance = { ...balanceFilter.solanaBalance, $lte: Number(maxBalance) };
-      } else { // total
-        if (minBalance) balanceFilter.totalBalance = { $gte: Number(minBalance) };
-        if (maxBalance) balanceFilter.totalBalance = { ...balanceFilter.totalBalance, $lte: Number(maxBalance) };
+    try {
+      const {
+        minBalance,
+        maxBalance,
+        network = 'total',
+        liquidityType,
+        isVerified,
+        isActive,
+        sortBy = 'totalBalance',
+        sortOrder = 'desc',
+        page = 1,
+        limit = 20,
+        search
+      } = req.query;
+  
+      console.log('🔍 Admin fetching liquidity providers with filters:', {
+        minBalance,
+        maxBalance,
+        network,
+        liquidityType,
+        isVerified,
+        isActive,
+        sortBy,
+        sortOrder,
+        page,
+        limit,
+        search
+      });
+  
+      // Build the filter object step by step with detailed logging
+      const filter: Record<string, any> = {};
+      
+      // Basic filters with improved boolean parsing
+      if (liquidityType) {
+        filter.liquidityType = liquidityType;
+        console.log('✅ Added liquidityType filter:', liquidityType);
       }
-      Object.assign(filter, balanceFilter);
-    }
-
-    // Build sort object
-    const sort: any = {};
-    sort[sortBy as string] = sortOrder === 'asc' ? 1 : -1;
-
-    // Calculate pagination
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const skip = (pageNum - 1) * limitNum;
-
-    // Build aggregation pipeline for better performance
-    const pipeline: any[] = [
-      { $match: filter },
-      {
+      
+      // Fix boolean parsing - handle string conversion properly
+      if (isVerified !== undefined) {
+        const verifiedValue = String(isVerified).toLowerCase() === 'true';
+        filter.isVerified = verifiedValue;
+        console.log('✅ Added isVerified filter:', verifiedValue);
+      }
+      
+      if (isActive !== undefined) {
+        const activeValue = String(isActive).toLowerCase() === 'true';
+        filter.isActive = activeValue;
+        console.log('✅ Added isActive filter:', activeValue);
+      }
+  
+      // Balance range filters
+      if (minBalance !== undefined || maxBalance !== undefined) {
+        const minBal = minBalance ? Number(minBalance) : undefined;
+        const maxBal = maxBalance ? Number(maxBalance) : undefined;
+        
+        // Validate numbers
+        if (minBal !== undefined && (isNaN(minBal) || minBal < 0)) {
+          res.status(400).json({
+            success: false,
+            message: 'Invalid minBalance value'
+          });
+          return;
+        }
+        
+        if (maxBal !== undefined && (isNaN(maxBal) || maxBal < 0)) {
+          res.status(400).json({
+            success: false,
+            message: 'Invalid maxBalance value'
+          });
+          return;
+        }
+  
+        const balanceField = network === 'base' ? 'baseBalance' : 
+                            network === 'solana' ? 'solanaBalance' : 'totalBalance';
+        
+        const balanceFilter: any = {};
+        if (minBal !== undefined) balanceFilter.$gte = minBal;
+        if (maxBal !== undefined) balanceFilter.$lte = maxBal;
+        
+        filter[balanceField] = balanceFilter;
+        console.log(`✅ Added ${balanceField} filter:`, balanceFilter);
+      }
+  
+      console.log('🎯 Final MongoDB filter:', JSON.stringify(filter, null, 2));
+  
+      // First, test if ANY records match our filter
+      const testCount = await LiquidityPosition.countDocuments(filter);
+      console.log(`🔢 Records matching filter: ${testCount}`);
+  
+      if (testCount === 0) {
+        console.log('⚠️ No records match the filter. Testing individual filters...');
+        
+        // Test each filter component individually
+        const filterTests = {
+          'no_filter': await LiquidityPosition.countDocuments({}),
+          'liquidityType_only': liquidityType ? await LiquidityPosition.countDocuments({ liquidityType }) : 'N/A',
+          'isVerified_only': isVerified !== undefined ? await LiquidityPosition.countDocuments({ isVerified: String(isVerified).toLowerCase() === 'true' }) : 'N/A',
+          'isActive_only': isActive !== undefined ? await LiquidityPosition.countDocuments({ isActive: String(isActive).toLowerCase() === 'true' }) : 'N/A'
+        };
+        
+        console.log('🧪 Individual filter test results:', filterTests);
+      }
+  
+      // Build sort object
+      const sort: Record<string, 1 | -1> = {};
+      sort[sortBy as string] = sortOrder === 'asc' ? 1 : -1;
+  
+      // Calculate pagination
+      const pageNum = Number(page);
+      const limitNum = Number(limit);
+      const skip = (pageNum - 1) * limitNum;
+  
+      // Build aggregation pipeline - START WITH JUST THE MATCH
+      const pipeline: any[] = [
+        { $match: filter }
+      ];
+  
+      // Add lookups
+      pipeline.push({
         $lookup: {
           from: 'users',
           localField: 'userId',
           foreignField: '_id',
           as: 'user'
         }
-      },
-      { $unwind: '$user' },
-      {
+      });
+  
+      // Use preserveNullAndEmptyArrays to keep records even if user lookup fails
+      pipeline.push({ 
+        $unwind: { 
+          path: '$user', 
+          preserveNullAndEmptyArrays: true 
+        } 
+      });
+  
+      pipeline.push({
         $lookup: {
           from: 'wallets',
           localField: 'walletId',
           foreignField: '_id',
           as: 'wallet'
         }
-      },
-      { $unwind: '$wallet' }
-    ];
-
-    // Add search filter if provided
-    if (search) {
+      });
+  
+      // Use preserveNullAndEmptyArrays to keep records even if wallet lookup fails
+      pipeline.push({ 
+        $unwind: { 
+          path: '$wallet', 
+          preserveNullAndEmptyArrays: true 
+        } 
+      });
+  
+      // Add search filter AFTER lookups if provided
+      if (search) {
+        const searchRegex = new RegExp(search.toString(), 'i');
+        pipeline.push({
+          $match: {
+            $or: [
+              { 'user.name': searchRegex },
+              { 'user.email': searchRegex },
+              { 'bankAccount.accountName': searchRegex },
+              { 'bankAccount.bankName': searchRegex }
+            ]
+          }
+        });
+        console.log('✅ Added search filter:', search);
+      }
+  
+      // Add sorting and pagination
+      pipeline.push({ $sort: sort });
+      pipeline.push({ $skip: skip });
+      pipeline.push({ $limit: limitNum });
+  
+      // Project the final structure
       pipeline.push({
-        $match: {
-          $or: [
-            { 'user.name': { $regex: search, $options: 'i' } },
-            { 'user.email': { $regex: search, $options: 'i' } },
-            { 'bankAccount.accountName': { $regex: search, $options: 'i' } },
-            { 'bankAccount.bankName': { $regex: search, $options: 'i' } }
-          ]
+        $project: {
+          id: '$_id',
+          user: {
+            id: { $ifNull: ['$user._id', null] },
+            name: { $ifNull: ['$user.name', 'Unknown'] },
+            email: { $ifNull: ['$user.email', 'Unknown'] },
+            isEmailVerified: { $ifNull: ['$user.isEmailVerified', false] },
+            createdAt: { $ifNull: ['$user.createdAt', null] }
+          },
+          liquidityType: 1,
+          balances: {
+            base: { $ifNull: ['$baseBalance', 0] },
+            solana: { $ifNull: ['$solanaBalance', 0] },
+            total: { $ifNull: ['$totalBalance', 0] }
+          },
+          bankAccount: {
+            accountNumber: { $ifNull: ['$bankAccount.accountNumber', null] },
+            bankCode: { $ifNull: ['$bankAccount.bankCode', null] },
+            bankName: { $ifNull: ['$bankAccount.bankName', null] },
+            accountName: { $ifNull: ['$bankAccount.accountName', null] }
+          },
+          wallets: {
+            baseAddress: { $ifNull: ['$wallet.baseAddress', null] },
+            solanaAddress: { $ifNull: ['$wallet.solanaAddress', null] }
+          },
+          status: {
+            isActive: { $ifNull: ['$isActive', false] },
+            isVerified: { $ifNull: ['$isVerified', false] }
+          },
+          timestamps: {
+            createdAt: 1,
+            updatedAt: 1,
+            lastDepositAt: 1,
+            lastWithdrawalAt: 1
+          }
         }
       });
-    }
-
-    // Add sorting and pagination
-    pipeline.push(
-      { $sort: sort },
-      { $skip: skip },
-      { $limit: limitNum }
-    );
-
-    // Project the final structure
-    pipeline.push({
-      $project: {
-        id: '$_id',
-        user: {
-          id: '$user._id',
-          name: '$user.name',
-          email: '$user.email',
-          isEmailVerified: '$user.isEmailVerified',
-          createdAt: '$user.createdAt'
-        },
-        liquidityType: 1,
-        balances: {
-          base: '$baseBalance',
-          solana: '$solanaBalance',
-          total: '$totalBalance'
-        },
-        bankAccount: {
-          accountNumber: '$bankAccount.accountNumber',
-          bankCode: '$bankAccount.bankCode',
-          bankName: '$bankAccount.bankName',
-          accountName: '$bankAccount.accountName'
-        },
-        wallets: {
-          baseAddress: '$wallet.baseAddress',
-          solanaAddress: '$wallet.solanaAddress'
-        },
-        status: {
-          isActive: '$isActive',
-          isVerified: '$isVerified'
-        },
-        timestamps: {
-          createdAt: '$createdAt',
-          updatedAt: '$updatedAt',
-          lastDepositAt: '$lastDepositAt',
-          lastWithdrawalAt: '$lastWithdrawalAt'
-        }
-      }
-    });
-
-    // Execute the aggregation
-    const providers = await LiquidityPosition.aggregate(pipeline);
-
-    // Get total count for pagination (without limit)
-    const countPipeline = pipeline.slice(0, -3); // Remove sort, skip, limit, and project
-    countPipeline.push({ $count: 'total' });
-    const countResult = await LiquidityPosition.aggregate(countPipeline);
-    const totalProviders = countResult.length > 0 ? countResult[0].total : 0;
-
-    // Calculate summary statistics
-    const summaryPipeline = [
-      { $match: filter },
-      {
-        $group: {
-          _id: null,
-          totalProviders: { $sum: 1 },
-          totalBalance: { $sum: '$totalBalance' },
-          totalBaseBalance: { $sum: '$baseBalance' },
-          totalSolanaBalance: { $sum: '$solanaBalance' },
-          activeProviders: {
-            $sum: { $cond: [{ $eq: ['$isActive', true] }, 1, 0] }
+  
+      console.log('📋 Aggregation pipeline steps:', pipeline.length);
+  
+      // Execute the aggregation
+      const providers = await LiquidityPosition.aggregate(pipeline);
+      console.log(`✅ Aggregation returned ${providers.length} providers`);
+  
+      // Get total count for pagination - use simpler approach
+      let totalProviders = 0;
+      if (search) {
+        // If search is used, we need to count with lookups
+        const countPipeline = [
+          { $match: filter },
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'userId',
+              foreignField: '_id',
+              as: 'user'
+            }
           },
-          verifiedProviders: {
-            $sum: { $cond: [{ $eq: ['$isVerified', true] }, 1, 0] }
+          { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+          {
+            $match: {
+              $or: [
+                { 'user.name': new RegExp(search.toString(), 'i') },
+                { 'user.email': new RegExp(search.toString(), 'i') },
+                { 'bankAccount.accountName': new RegExp(search.toString(), 'i') },
+                { 'bankAccount.bankName': new RegExp(search.toString(), 'i') }
+              ]
+            }
           },
-          averageBalance: { $avg: '$totalBalance' }
-        }
+          { $count: 'total' }
+        ];
+        const countResult = await LiquidityPosition.aggregate(countPipeline);
+        totalProviders = countResult.length > 0 ? countResult[0].total : 0;
+      } else {
+        // Simple count without search
+        totalProviders = await LiquidityPosition.countDocuments(filter);
       }
-    ];
-
-    const summaryResult = await LiquidityPosition.aggregate(summaryPipeline);
-    const summary = summaryResult.length > 0 ? summaryResult[0] : {
-      totalProviders: 0,
-      totalBalance: 0,
-      totalBaseBalance: 0,
-      totalSolanaBalance: 0,
-      activeProviders: 0,
-      verifiedProviders: 0,
-      averageBalance: 0
-    };
-
-    // Pagination info
-    const totalPages = Math.ceil(totalProviders / limitNum);
-    const hasNextPage = pageNum < totalPages;
-    const hasPrevPage = pageNum > 1;
-
-    console.log(`✅ Found ${providers.length} liquidity providers (${totalProviders} total)`);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        providers,
-        pagination: {
-          currentPage: pageNum,
-          totalPages,
-          totalItems: totalProviders,
-          itemsPerPage: limitNum,
-          hasNextPage,
-          hasPrevPage
-        },
-        summary: {
-          totalProviders: summary.totalProviders,
-          totalBalance: Math.round(summary.totalBalance * 100) / 100,
-          totalBaseBalance: Math.round(summary.totalBaseBalance * 100) / 100,
-          totalSolanaBalance: Math.round(summary.totalSolanaBalance * 100) / 100,
-          activeProviders: summary.activeProviders,
-          verifiedProviders: summary.verifiedProviders,
-          averageBalance: Math.round(summary.averageBalance * 100) / 100,
-          networkDistribution: {
-            base: Math.round(summary.totalBaseBalance * 100) / 100,
-            solana: Math.round(summary.totalSolanaBalance * 100) / 100,
-            basePercentage: summary.totalBalance > 0 ? Math.round((summary.totalBaseBalance / summary.totalBalance) * 100) : 0,
-            solanaPercentage: summary.totalBalance > 0 ? Math.round((summary.totalSolanaBalance / summary.totalBalance) * 100) : 0
+  
+      console.log(`📊 Total providers matching criteria: ${totalProviders}`);
+  
+      // Calculate summary statistics using the same filter
+      const summaryResult = await LiquidityPosition.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: null,
+            totalProviders: { $sum: 1 },
+            totalBalance: { $sum: { $ifNull: ['$totalBalance', 0] } },
+            totalBaseBalance: { $sum: { $ifNull: ['$baseBalance', 0] } },
+            totalSolanaBalance: { $sum: { $ifNull: ['$solanaBalance', 0] } },
+            activeProviders: {
+              $sum: { $cond: [{ $eq: ['$isActive', true] }, 1, 0] }
+            },
+            verifiedProviders: {
+              $sum: { $cond: [{ $eq: ['$isVerified', true] }, 1, 0] }
+            },
+            averageBalance: { $avg: { $ifNull: ['$totalBalance', 0] } }
           }
-        },
-        filters: {
-          applied: {
-            minBalance,
-            maxBalance,
-            network,
-            liquidityType,
-            isVerified,
-            isActive,
-            search
-          },
-          sortBy,
-          sortOrder
         }
-      }
-    });
-
-  } catch (error) {
-    console.error('❌ Admin get liquidity providers error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching liquidity providers',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-};
+      ]);
+  
+      const summary = summaryResult.length > 0 ? summaryResult[0] : {
+        totalProviders: 0,
+        totalBalance: 0,
+        totalBaseBalance: 0,
+        totalSolanaBalance: 0,
+        activeProviders: 0,
+        verifiedProviders: 0,
+        averageBalance: 0
+      };
+  
+      // Pagination info
+      const totalPages = Math.ceil(totalProviders / limitNum);
+      const hasNextPage = pageNum < totalPages;
+      const hasPrevPage = pageNum > 1;
+  
+      console.log(`✅ Found ${providers.length} liquidity providers (${totalProviders} total)`);
+      console.log('📈 Summary stats:', summary);
+  
+      res.status(200).json({
+        success: true,
+        data: {
+          providers,
+          pagination: {
+            currentPage: pageNum,
+            totalPages,
+            totalItems: totalProviders,
+            itemsPerPage: limitNum,
+            hasNextPage,
+            hasPrevPage
+          },
+          summary: {
+            totalProviders: summary.totalProviders,
+            totalBalance: Math.round((summary.totalBalance || 0) * 100) / 100,
+            totalBaseBalance: Math.round((summary.totalBaseBalance || 0) * 100) / 100,
+            totalSolanaBalance: Math.round((summary.totalSolanaBalance || 0) * 100) / 100,
+            activeProviders: summary.activeProviders,
+            verifiedProviders: summary.verifiedProviders,
+            averageBalance: Math.round((summary.averageBalance || 0) * 100) / 100,
+            networkDistribution: {
+              base: Math.round((summary.totalBaseBalance || 0) * 100) / 100,
+              solana: Math.round((summary.totalSolanaBalance || 0) * 100) / 100,
+              basePercentage: summary.totalBalance > 0 ? Math.round(((summary.totalBaseBalance || 0) / summary.totalBalance) * 100) : 0,
+              solanaPercentage: summary.totalBalance > 0 ? Math.round(((summary.totalSolanaBalance || 0) / summary.totalBalance) * 100) : 0
+            }
+          },
+          filters: {
+            applied: {
+              minBalance,
+              maxBalance,
+              network,
+              liquidityType,
+              isVerified,
+              isActive,
+              search
+            },
+            sortBy,
+            sortOrder
+          },
+          debug: {
+            filterUsed: filter,
+            totalRecordsMatchingFilter: testCount,
+            pipelineSteps: pipeline.length
+          }
+        }
+      });
+  
+    } catch (error) {
+      console.error('❌ Admin get liquidity providers error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error fetching liquidity providers',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  };
 
 // @desc    Get liquidity provider statistics
 // @route   GET /api/admin/liquidity-stats
